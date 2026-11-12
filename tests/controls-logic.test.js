@@ -150,3 +150,23 @@ test('jump date is UTC midnight and rejects empty, malformed and nonexistent dat
     assert.equal(parseJumpDate(value), null);
   }
 });
+
+
+test('jump clamps to inclusive data bounds and preserves interior times', () => {
+  assert.equal(typeof controlsLogic.clampJumpTime, 'function');
+  for (const [input, time, clamped] of [[99, 100, true], [901, 900, true],
+    [100, 100, false], [900, 900, false], [350, 350, false]]) {
+    assert.deepEqual(controlsLogic.clampJumpTime(input, 100, 900), { time, clamped });
+  }
+  assert.deepEqual(controlsLogic.clampJumpTime(0, 100, 100), { time: 100, clamped: true });
+});
+
+test('select bar accepts finite timestamps, clamps them and rejects empty clicks', () => {
+  assert.equal(typeof controlsLogic.selectBarTarget, 'function');
+  for (const invalid of [undefined, null, NaN, Infinity, '100']) {
+    assert.equal(controlsLogic.selectBarTarget(invalid, 100, 900), null);
+  }
+  for (const [input, expected] of [[50, 100], [100, 100], [350, 350], [900, 900], [950, 900]]) {
+    assert.equal(controlsLogic.selectBarTarget(input, 100, 900), expected);
+  }
+});

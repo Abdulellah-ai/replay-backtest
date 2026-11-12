@@ -76,3 +76,14 @@ export function syncScrollTarget(window, timestamps) {
   }
   return { fromIndex: indexAt(window.fromTs), toIndex: indexAt(window.toTs) };
 }
+
+
+export function clampJumpTime(time, first, last) {
+  const target = Math.max(first, Math.min(last, time));
+  return { time: target, clamped: target !== time };
+}
+
+export function selectBarTarget(clickedTimestamp, first, last) {
+  if (!Number.isFinite(clickedTimestamp)) return null;
+  return clampJumpTime(clickedTimestamp, first, last).time;
+}

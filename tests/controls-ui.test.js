@@ -14,6 +14,7 @@ function node() {
     attributes: new Map([['aria-pressed', 'false']]),
     getAttribute(name) { return this.attributes.get(name); },
     setAttribute(name, value) { this.attributes.set(name, value); },
+    getBoundingClientRect: () => ({ left: 100, top: 50 }),
     style: { setProperty() {} },
     append() {}, replaceChildren() {},
     querySelector(selector) {
@@ -80,21 +81,22 @@ test('shared toolbar template and label dialog contain the rectangle and editing
 
 function fixture(t) {
   const previous = { document: globalThis.document, window: globalThis.window,
-    cancelAnimationFrame: globalThis.cancelAnimationFrame };
+    cancelAnimationFrame: globalThis.cancelAnimationFrame, requestAnimationFrame: globalThis.requestAnimationFrame };
   t.after(() => Object.assign(globalThis, previous));
   globalThis.document = node();
   globalThis.document.createElement = () => node();
   globalThis.window = node();
   globalThis.cancelAnimationFrame = () => {};
+  globalThis.requestAnimationFrame = () => 1;
   function pane() {
     const actions = [];
     const listeners = new Map();
     const bars = [{ timestamp: 60000, close: 10 }, { timestamp: 120000, close: 20 }];
     const instance = {
-      setStyles() {}, resize() {},
+      setStyles() {}, resize() {}, getOverlays: () => [],
       getDataList: () => bars,
       getVisibleRange: () => ({ from: 0, to: 2 }),
-      convertFromPixel: () => [{ timestamp: 60000 }],
+      convertFromPixel: () => [{ dataIndex: 0, timestamp: 60000 }],
       convertToPixel: () => ({ x: 10, y: 20 }),
       executeAction(type, data) { actions.push({ type, data }); },
       subscribeAction(type, callback) { listeners.set(type, callback); },
@@ -119,7 +121,7 @@ function fixture(t) {
     let rightMin = 2;
     instance.setLeftMinVisibleBarCount = value => { leftMin = Math.ceil(value); };
     instance.setRightMinVisibleBarCount = value => { rightMin = Math.ceil(value); };
-    instance.getSize = () => ({ width: 600, height: 300 });
+    instance.getSize = () => ({ left: 0, top: 0, width: 600, height: 300 });
     instance.getBarSpace = () => ({ bar: space, halfBar: space / 2, gapBar: 0, halfGapBar: 0 });
     instance.getLayoutOptions = () => ({ barSpaceLimit: { ...limits } });
     instance.setLayoutOptions = value => { limits = { ...value.barSpaceLimit }; };
@@ -148,7 +150,8 @@ function fixture(t) {
   const usd = pane();
   const eur = pane();
   const settings = { ...structuredClone(DEFAULT_SETTINGS), syncCrosshair: true };
-  const master = { time: 120000, stepM1: () => true };
+  const master = { time: 120000, cursor: 1, stepM1: () => true,
+    seekToTime(time) { this.time = time; } };
   const controls = attachControls({ usd, eur, master, settings, save(candidate) {
     Object.assign(settings, candidate);
     controls.settingsChanged();
@@ -345,3 +348,259 @@ for (const trigger of ['sync off', 'pointer leave']) {
     assert.deepEqual(f.usd.actions, [], 'clearing targets the mirrored chart');
   });
 }
+
+
+for (const selectedPane of ['usd', 'eur']) {
+  test(`Select bar arms and picks a candle in ${selectedPane}, refreshing both panes`, t => {
+    const f = fixture(t);
+    f.master.time = 60000;
+    const button = document.querySelector('#select-bar');
+    button.emit('click');
+    assert.equal(f.master.time, 120000);
+    assert.equal(button.getAttribute('aria-pressed'), 'true');
+    assert.equal(document.querySelector('#status').textContent,
+      'Click a bar to start the replay (Esc to cancel)');
+    f.controls.play();
+    f.controls.stepM1();
+    f.controls.stepBar();
+    assert.equal(f.controls.playing, false);
+    assert.equal(f.master.time, 120000);
+    pointerClick(f[selectedPane]);
+    assert.equal(f.master.time, 60000, 'use the clicked candle, not crosshair time');
+    assert.equal(f.eur.replay.time, 60000);
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(document.querySelector('#status').textContent, '');
+    assert.equal(f.controls.playing, false);
+    assert.equal(f.usd.refreshes.length, 2);
+    assert.equal(f.eur.refreshes.length, 2);
+    assert.equal(document.querySelector('#master-time').textContent, 'Master: 1970-01-01T00:01:00.000Z (UTC)');
+  });
+}
+
+for (const cancel of ['Escape', 'button']) {
+  test(`Select bar cancellation by ${cancel} restores remembered time and stays paused`, t => {
+    const f = fixture(t);
+    f.master.time = 60000;
+    const button = document.querySelector('#select-bar');
+    button.emit('click');
+    if (cancel === 'Escape') document.emit('keydown', { key: 'Escape' });
+    else button.emit('click');
+    assert.equal(f.master.time, 60000);
+    assert.equal(f.eur.replay.time, 60000);
+    assert.equal(f.controls.playing, false);
+    assert.equal(button.getAttribute('aria-pressed'), 'false');
+    assert.equal(document.querySelector('#status').textContent, '');
+  });
+}
+
+function pointerClick(pane, down = {}, up = {}) {
+  const surface = pane.root.querySelector('.chart');
+  const event = { clientX: 110, clientY: 70, pointerId: 1, button: 0,
+    preventDefault() { assert.fail('selection must allow library gestures'); }, ...down };
+  surface.emit('pointerdown', event);
+  surface.emit('pointerup', { ...event, ...up });
+}
+
+test('Select bar ignores invalid points, indicator panes, axes and drawing clicks', t => {
+  const f = fixture(t);
+  document.querySelector('#select-bar').emit('click');
+  const instance = f.usd.chart.instance;
+  const convert = instance.convertFromPixel;
+  for (const point of [undefined, {}, { dataIndex: -1 }, { dataIndex: 2 },
+    { dataIndex: NaN }, { dataIndex: 0.5 }]) {
+    instance.convertFromPixel = () => [point];
+    pointerClick(f.usd);
+    assert.equal(f.master.time, 120000);
+  }
+  instance.convertFromPixel = convert;
+  for (const point of [{ clientX: 700 }, { clientY: 350 }, { clientX: 99 }, { clientY: 49 }]) {
+    pointerClick(f.usd, point);
+    assert.equal(f.master.time, 120000);
+  }
+  let overlays = [{ currentStep: 2 }];
+  instance.getOverlays = () => overlays;
+  pointerClick(f.usd);
+  const surface = f.usd.root.querySelector('.chart');
+  surface.emit('pointerdown', { clientX: 110, clientY: 70, pointerId: 1, button: 0 });
+  overlays = [{ currentStep: -1 }];
+  surface.emit('pointerup', { clientX: 110, clientY: 70, pointerId: 1, button: 0 });
+  assert.equal(f.master.time, 120000, 'finishing a drawing must not pick a replay bar');
+  assert.equal(document.querySelector('#select-bar').getAttribute('aria-pressed'), 'true');
+  pointerClick(f.usd);
+  assert.equal(f.master.time, 60000);
+});
+
+test('Jump clamps visibly, sets UTC date bounds, and expires only its own message', t => {
+  const timers = [];
+  const previous = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
+  t.after(() => Object.assign(globalThis, previous));
+  globalThis.setTimeout = (fn, delay) => { timers.push({ fn, delay }); return timers.length; };
+  globalThis.clearTimeout = () => {};
+  const f = fixture(t);
+  const input = document.querySelector('#jump-date');
+  const status = document.querySelector('#status');
+  assert.equal(input.min, '1970-01-01');
+  assert.equal(input.max, '1970-01-01');
+  for (const [date, time] of [['1969-12-31', 60000], ['1970-01-02', 120000]]) {
+    input.value = date;
+    document.querySelector('#jump').emit('click');
+    assert.equal(f.master.time, time);
+    assert.equal(f.eur.replay.time, time);
+    assert.match(status.textContent, /Date is outside the data; moved to 1970-01-01 00:0[12] UTC/);
+    assert.equal(timers.at(-1).delay, 4000);
+    timers.at(-1).fn();
+    assert.equal(status.textContent, '');
+  }
+  f.controls.jumpToTime(-1);
+  document.querySelector('#select-bar').emit('click');
+  timers.at(-1).fn();
+  assert.match(status.textContent, /Click a bar/);
+});
+
+test('Jump rejects invalid dates visibly and a valid Jump ends selection', t => {
+  const f = fixture(t);
+  const input = document.querySelector('#jump-date');
+  input.value = '';
+  document.querySelector('#jump').emit('click');
+  assert.equal(f.master.time, 120000);
+  assert.equal(document.querySelector('#status').textContent, 'Enter a valid UTC date.');
+  document.querySelector('#select-bar').emit('click');
+  f.controls.jumpToTime(60000);
+  assert.equal(document.querySelector('#select-bar').getAttribute('aria-pressed'), 'false');
+  assert.equal(document.querySelector('#status').textContent, '');
+});
+
+
+test('arming Select bar pauses running playback and refreshes indicators and gap banners', t => {
+  const f = fixture(t);
+  f.master.time = 60000;
+  f.master.cursor = 0;
+  f.controls.play();
+  assert.equal(f.controls.playing, true);
+  for (const pane of [f.usd, f.eur]) {
+    pane.updates = 0;
+    pane.indicators.update = () => { pane.updates += 1; };
+    pane.gaps = [{ kind: 'unexplained', minutes: 10, startTs: 60000, endTs: 120000 }];
+    pane.chart.refresh = () => { pane.replay.time = f.master.time; };
+  }
+  document.querySelector('#select-bar').emit('click');
+  assert.equal(document.querySelector('#play').textContent, 'Play');
+  assert.equal(f.controls.playing, false);
+  for (const pane of [f.usd, f.eur]) {
+    assert.equal(pane.updates, 1);
+    assert.equal(pane.root.querySelector('.gap-banner').hidden, false);
+  }
+  pointerClick(f.eur);
+  for (const pane of [f.usd, f.eur]) {
+    assert.equal(pane.updates, 2);
+    assert.equal(pane.root.querySelector('.gap-banner').hidden, true);
+  }
+});
+
+test('Select bar and status have accessible markup and nonempty status has dark UI styling', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /<button id="select-bar"[^>]*aria-pressed="false"[^>]*disabled>Select bar<\/button>/);
+  assert.match(html, /<p id="status" role="status" aria-live="polite"><\/p>/);
+  assert.match(html, /#status \{[^}]*flex-shrink: 0;[^}]*color: #e5b96b;[^}]*background: #131722;/);
+  assert.match(html, /#status:empty \{ display: none; \}/);
+});
+
+
+for (const selectedPane of ['usd', 'eur']) {
+  test(`Select bar converts surface coordinates and uses the loaded bar index in ${selectedPane}`, t => {
+    const f = fixture(t);
+    document.querySelector('#select-bar').emit('click');
+    f[selectedPane].chart.instance.convertFromPixel = (points, filter) => {
+      assert.deepEqual(points, [{ x: 10, y: 20 }]);
+      assert.deepEqual(filter, { paneId: 'candle_pane' });
+      return [{ dataIndex: 0, timestamp: 120000 }];
+    };
+    pointerClick(f[selectedPane]);
+    assert.equal(f.master.time, 60000);
+    assert.equal(f.eur.replay.time, 60000);
+    assert.equal(document.querySelector('#select-bar').getAttribute('aria-pressed'), 'false');
+    assert.equal(document.querySelector('#status').textContent, '');
+    assert.equal(f[selectedPane].listeners.has('onCandleBarClick'), false);
+  });
+}
+
+test('Select bar rejects drags, other pointers, cancellation and unarmed gestures', t => {
+  const f = fixture(t);
+  pointerClick(f.usd);
+  assert.equal(f.master.time, 120000);
+  document.querySelector('#select-bar').emit('click');
+  for (const up of [{ clientX: 114 }, { clientY: 74 }, { clientX: 113, clientY: 73 }, { pointerId: 2 }]) {
+    pointerClick(f.usd, {}, up);
+    assert.equal(f.master.time, 120000);
+  }
+  pointerClick(f.usd, { button: 2 });
+  assert.equal(f.master.time, 120000);
+  const surface = f.usd.root.querySelector('.chart');
+  const point = { clientX: 110, clientY: 70, pointerId: 1, button: 0 };
+  for (const type of ['pointercancel', 'pointerleave', 'pointermove']) {
+    surface.emit('pointerdown', point);
+    surface.emit(type, { ...point, clientX: 120 });
+    surface.emit('pointerup', point);
+    assert.equal(f.master.time, 120000);
+  }
+  pointerClick(f.usd, {}, { clientX: 112, clientY: 72 });
+  assert.equal(f.master.time, 60000, 'movement below four pixels still selects');
+});
+
+test('Select bar ignores gestures during chart refresh and across cancellation/rearming', t => {
+  const f = fixture(t);
+  const button = document.querySelector('#select-bar');
+  button.emit('click');
+  f.usd.chart.refresh = () => pointerClick(f.usd);
+  changeTimeframe(f.usd, '5m');
+  assert.equal(f.master.time, 120000);
+  const surface = f.usd.root.querySelector('.chart');
+  const point = { clientX: 110, clientY: 70, pointerId: 1, button: 0 };
+  surface.emit('pointerdown', point);
+  document.emit('keydown', { key: 'Escape' });
+  button.emit('click');
+  surface.emit('pointerup', point);
+  assert.equal(button.getAttribute('aria-pressed'), 'true');
+  assert.equal(f.master.time, 120000);
+});
+
+test('Select bar respects offset candle bounds and converts to main pane coordinates', t => {
+  const f = fixture(t);
+  document.querySelector('#select-bar').emit('click');
+  const instance = f.usd.chart.instance;
+  instance.getSize = (paneId, position) => {
+    assert.equal(paneId, 'candle_pane');
+    assert.equal(position, 'main');
+    return { left: 30, top: 40, width: 500, height: 200 };
+  };
+  let conversions = 0;
+  instance.convertFromPixel = (points, filter) => {
+    conversions += 1;
+    assert.deepEqual(points, [{ x: 10, y: 20 }]);
+    assert.deepEqual(filter, { paneId: 'candle_pane' });
+    return [{ dataIndex: 1 }];
+  };
+  for (const point of [{ clientX: 129, clientY: 110 }, { clientX: 140, clientY: 89 },
+    { clientX: 630, clientY: 110 }, { clientX: 140, clientY: 290 }]) {
+    pointerClick(f.usd, point);
+    assert.equal(conversions, 0);
+    assert.equal(document.querySelector('#select-bar').getAttribute('aria-pressed'), 'true');
+  }
+  pointerClick(f.usd, { clientX: 140, clientY: 110 });
+  assert.equal(conversions, 1);
+  assert.equal(f.master.time, 120000);
+  assert.equal(document.querySelector('#select-bar').getAttribute('aria-pressed'), 'false');
+});
+
+test('Select bar guards drawings in the other chart and missing candle bounds', t => {
+  const f = fixture(t);
+  document.querySelector('#select-bar').emit('click');
+  f.eur.chart.instance.getOverlays = () => [{ currentStep: 2 }];
+  pointerClick(f.usd);
+  assert.equal(f.master.time, 120000);
+  f.eur.chart.instance.getOverlays = () => [];
+  f.usd.chart.instance.getSize = () => null;
+  pointerClick(f.usd);
+  assert.equal(f.master.time, 120000);
+  assert.equal(document.querySelector('#select-bar').getAttribute('aria-pressed'), 'true');
+});

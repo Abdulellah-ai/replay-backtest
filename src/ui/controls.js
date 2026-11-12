@@ -1,5 +1,5 @@
 import { advancePlayback, clampDivider, gapsInVisibleWindow, visibleTimeWindow,
-  nearestRevealedBar, parseJumpDate, syncScrollTarget } from './controls-logic.js';
+  nearestRevealedBar, parseJumpDate, syncScrollTarget, clampJumpTime, selectBarTarget } from './controls-logic.js';
 import { isMagnetEnabled, setMagnet, setTrendColour, setRectColour } from './drawing.js';
 import { attachFibDialog } from './fibDialog.js';
 
@@ -15,6 +15,36 @@ export function attachControls({ usd, eur, master, settings, save }) {
   const levelsInput = document.querySelector('#session-levels');
   const gapInput = document.querySelector('#gap-warnings');
   const status = document.querySelector('#status');
+  const selectButton = document.querySelector('#select-bar');
+  const firstTime = usd.store.t[0];
+  const lastDataTime = usd.store.t.at(-1);
+  dateInput.min = new Date(firstTime).toISOString().slice(0, 10);
+  dateInput.max = new Date(lastDataTime).toISOString().slice(0, 10);
+  let selectionStart = null;
+  let selectionRevision = 0;
+  let statusTimer;
+  let statusRevision = 0;
+
+  function showStatus(message, duration = 0) {
+    clearTimeout(statusTimer);
+    const revision = ++statusRevision;
+    status.textContent = message;
+    if (duration) statusTimer = setTimeout(() => {
+      if (revision === statusRevision && status.textContent === message) status.textContent = '';
+    }, duration);
+  }
+
+  function endSelection() {
+    selectionStart = null;
+    selectionRevision += 1;
+    selectButton.setAttribute('aria-pressed', 'false');
+  }
+
+  function drawingInProgress() {
+    // v10 exposes currentStep; completed overlays have step -1.
+    return panes.some(pane => pane.chart.instance.getOverlays()
+      .some(overlay => overlay.currentStep !== -1));
+  }
   let playing = false;
   let frameId;
   let lastTime = 0;
@@ -97,7 +127,7 @@ export function attachControls({ usd, eur, master, settings, save }) {
   }
 
   function play() {
-    if (playing || master.cursor >= usd.store.length - 1) return;
+    if (selectionStart !== null || playing || master.cursor >= usd.store.length - 1) return;
     playing = true;
     lastTime = performance.now();
     playButton.textContent = 'Pause';
@@ -105,17 +135,20 @@ export function attachControls({ usd, eur, master, settings, save }) {
   }
 
   function step(kind) {
+    if (selectionStart !== null) return;
     pause();
     if (advance(kind)) render();
   }
 
   function jumpToTime(time) {
     pause();
-    if (!Number.isFinite(time) || time < usd.store.t[0] || time > usd.store.t.at(-1)) {
-      status.textContent = 'Choose a UTC date within the XAUUSD data range.';
+    if (!Number.isFinite(time)) {
+      showStatus('Enter a valid UTC date.');
       return false;
     }
-    master.seekToTime(time);
+    const target = clampJumpTime(time, firstTime, lastDataTime);
+    endSelection();
+    master.seekToTime(target.time);
     eur.replay.seekToTime(master.time);
     updatingCharts = true;
     try {
@@ -127,7 +160,9 @@ export function attachControls({ usd, eur, master, settings, save }) {
       }
       updateTime();
     } finally { updatingCharts = false; }
-    status.textContent = '';
+    showStatus(target.clamped ? 'Date is outside the data; moved to ' +
+      new Date(master.time).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '',
+      target.clamped ? 4000 : 0);
     return true;
   }
 
@@ -151,12 +186,33 @@ export function attachControls({ usd, eur, master, settings, save }) {
     }
   }
 
+  function cancelSelection() {
+    if (selectionStart === null) return;
+    jumpToTime(selectionStart);
+  }
+
+  selectButton.addEventListener('click', () => {
+    if (selectionStart !== null) { cancelSelection(); return; }
+    const rememberedTime = master.time;
+    jumpToTime(lastDataTime);
+    selectionStart = rememberedTime;
+    selectButton.setAttribute('aria-pressed', 'true');
+    showStatus('Click a bar to start the replay (Esc to cancel)');
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') cancelSelection();
+  });
+
   playButton.addEventListener('click', () => playing ? pause() : play());
   document.querySelector('#step-m1').addEventListener('click', () => step('stepM1'));
   document.querySelector('#step-bar').addEventListener('click', () => step('stepBar'));
   document.querySelector('#jump').addEventListener('click', () => {
     const time = parseJumpDate(dateInput.value);
-    if (time === null) { status.textContent = 'Enter a valid UTC date.'; return; }
+    if (time === null) {
+      showStatus(selectionStart !== null ? 'Enter a valid UTC date. Click a bar to start the replay (Esc to cancel)' :
+        'Enter a valid UTC date.');
+      return;
+    }
     jumpToTime(time);
   });
   dateInput.addEventListener('keydown', event => {
@@ -281,11 +337,51 @@ export function attachControls({ usd, eur, master, settings, save }) {
       });
     }
     const surface = pane.root.querySelector('.chart');
+    let pointerDown = null;
+    function candlePoint(event) {
+      const rect = surface.getBoundingClientRect();
+      const bounds = instance.getSize('candle_pane', 'main');
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      if (!bounds || !(x >= bounds.left && x < bounds.left + bounds.width &&
+          y >= bounds.top && y < bounds.top + bounds.height)) return null;
+      return { x: x - bounds.left, y: y - bounds.top };
+    }
+    // Capture before the library completes a drawing on this same gesture.
+    // Observe gestures without preventing the library's scrolling or drawing.
+    surface.addEventListener('pointerdown', event => {
+      pointerDown = null;
+      if (selectionStart === null || updatingCharts || event.button !== 0 ||
+          !candlePoint(event)) return;
+      pointerDown = { x: event.clientX, y: event.clientY, id: event.pointerId,
+        revision: selectionRevision, drawing: drawingInProgress() };
+    }, true);
+    surface.addEventListener('pointermove', event => {
+      if (pointerDown && event.pointerId === pointerDown.id &&
+          Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y) >= 4) {
+        pointerDown = null;
+      }
+    }, true);
+    surface.addEventListener('pointerup', event => {
+      const down = pointerDown;
+      pointerDown = null;
+      if (!down || selectionStart === null || updatingCharts || down.revision !== selectionRevision ||
+          event.pointerId !== down.id || event.button !== 0 || down.drawing || drawingInProgress() ||
+          !(Math.hypot(event.clientX - down.x, event.clientY - down.y) < 4)) return;
+      const pixel = candlePoint(event);
+      if (!pixel) return;
+      const [point] = instance.convertFromPixel([pixel], { paneId: 'candle_pane' });
+      if (!Number.isInteger(point?.dataIndex) || point.dataIndex < 0) return;
+      const bar = instance.getDataList()[point.dataIndex];
+      const target = selectBarTarget(bar?.timestamp, firstTime, lastDataTime);
+      if (target !== null) jumpToTime(target);
+    });
+    surface.addEventListener('pointercancel', () => { pointerDown = null; }, true);
     surface.addEventListener('pointerenter', () => {
       mirrored.delete(pane);
       instance.setStyles({ crosshair: { show: true } });
     });
-    surface.addEventListener('pointerleave', clearMirrors);
+    surface.addEventListener('pointerleave', () => { pointerDown = null; clearMirrors(); });
     instance.subscribeAction('onVisibleRangeChange', () => updateGap(pane));
     // Data delivery (including async history and replay pushes) changes the
     // visible range too. Only explicit scroll/zoom actions initiate syncing.

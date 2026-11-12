@@ -18,7 +18,7 @@
     button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #648bd1; }
     #controls, .pane-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; }
     #controls, .pane-controls { background: #1e222d; border-bottom: 1px solid #2a2e39; }
-    #status { margin: 0 8px; color: #e5b96b; }
+    #status { flex-shrink: 0; margin: 0; padding: 6px 8px; color: #e5b96b; background: #131722; }
     #status:empty { display: none; }
     #panes { --split: 50%; display: flex; position: relative; flex: 1; min-height: 0; }
     .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -79,6 +79,7 @@
     </select></label>
     <button id="step-m1" type="button" disabled>Step M1</button>
     <button id="step-bar" type="button" disabled>Step bar</button>
+    <button id="select-bar" type="button" aria-pressed="false" disabled>Select bar</button>
     <label>Jump to date (UTC) <input id="jump-date" type="date" disabled></label>
     <button id="jump" type="button" disabled>Jump</button>
     <label><input id="sync-crosshair" type="checkbox" disabled> Sync crosshair</label>
