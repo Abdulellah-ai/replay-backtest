@@ -49,6 +49,13 @@ export function moveRectHandle(points, handle, mouse) {
   return result;
 }
 
+export const FIB_DEFAULT_COLOUR = '#b2b5be';
+
+export function fibLevelColour(colours, index) {
+  const colour = Array.isArray(colours) ? colours[index] : undefined;
+  return typeof colour === 'string' && /^#[0-9a-f]{6}$/i.test(colour) ? colour : FIB_DEFAULT_COLOUR;
+}
+
 export function snapAxis(first, current) {
   return Math.abs(current.x - first.x) >= Math.abs(current.y - first.y) ? 'horizontal' : 'vertical';
 }

@@ -302,7 +302,7 @@ test('magnet defaults on and toggles existing drawing groups and all new drawing
   assert.equal(f.overridden.at(-1).mode, 'weak_magnet');
 });
 
-test('Fib drawings copy preset levels and render percent/price with zero at the second point', () => {
+test('Fib drawings copy preset levels and label each line with its level number, zero at the second point', () => {
   const f = fixture();
   const levels = [0, 0.5, 1, 2];
   startDrawing(f.chart, 'fib', { levels });
@@ -315,12 +315,40 @@ test('Fib drawings copy preset levels and render percent/price with zero at the 
     overlay: { ...request, points: [{ value: 200 }, { value: 100 }] },
     coordinates: [{ x: 10, y: 20 }, { x: 30, y: 120 }], bounding: { width: 400 } };
   const result = template.createPointFigures(params);
-  assert.equal(result[1].ignoreEvent, true, 'level labels must not intercept line/point interaction');
+  const lines = result.filter(figure => figure.type === 'line');
+  const texts = result.filter(figure => figure.type === 'text');
+  assert.ok(texts.every(figure => figure.ignoreEvent === true), 'level labels must not intercept line/point interaction');
   assert.equal(template.totalStep, 3);
-  assert.deepEqual(result[0].attrs.map(line => line.coordinates[0].y), [120, 70, 20, -80]);
-  assert.deepEqual(result[1].attrs.map(text => text.text), ['100.00 (0.0%)', '150.00 (50.0%)',
-    '200.00 (100.0%)', '300.00 (200.0%)']);
+  assert.deepEqual(lines.map(line => line.attrs.coordinates[0].y), [120, 70, 20, -80]);
+  assert.deepEqual(texts.map(text => text.attrs.text), ['0', '0.5', '1', '2'],
+    'labels are only the level numbers, no price and no percent');
   assert.deepEqual(template.createPointFigures({ ...params, coordinates: [] }), []);
+});
+
+test('Fib lines span only the two points and each level uses its own colour', () => {
+  const f = fixture();
+  startDrawing(f.chart, 'fib', { levels: [0, 0.5, 1], colors: ['#ff0000', '#00ff00', '#0000ff'] });
+  const request = f.created[0];
+  assert.deepEqual(request.extendData.colors, ['#ff0000', '#00ff00', '#0000ff']);
+  const template = f.templates.get(request.name);
+  const chart = { getSymbol: () => ({ pricePrecision: 2 }),
+    getDecimalFold: () => ({ format: value => value }), getThousandsSeparator: () => ({ format: value => value }) };
+  // Second point is left of the first: the line still starts at the smaller x.
+  const result = template.createPointFigures({ chart, bounding: { width: 400 },
+    overlay: { ...request, points: [{ value: 200 }, { value: 100 }] },
+    coordinates: [{ x: 300, y: 20 }, { x: 100, y: 120 }] });
+  const lines = result.filter(figure => figure.type === 'line');
+  const texts = result.filter(figure => figure.type === 'text');
+  assert.ok(lines.every(line => line.attrs.coordinates[0].x === 100 && line.attrs.coordinates[1].x === 300));
+  assert.deepEqual(lines.map(line => line.styles.color), ['#ff0000', '#00ff00', '#0000ff']);
+  assert.deepEqual(texts.map(text => text.styles.color), ['#ff0000', '#00ff00', '#0000ff']);
+  // Without colours (older presets) every level falls back to the default colour.
+  startDrawing(f.chart, 'fib', { levels: [0, 1] });
+  const plain = f.created[1];
+  const figures = f.templates.get(plain.name).createPointFigures({ chart, bounding: { width: 400 },
+    overlay: { ...plain, points: [{ value: 200 }, { value: 100 }] },
+    coordinates: [{ x: 10, y: 20 }, { x: 30, y: 120 }] });
+  assert.ok(figures.filter(figure => figure.type === 'line').every(line => line.styles.color === '#b2b5be'));
 });
 
 test('Shift hooks snap either endpoint using its own chart pixels and clear on release/blur', t => {

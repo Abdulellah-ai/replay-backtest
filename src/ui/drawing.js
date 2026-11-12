@@ -1,6 +1,6 @@
 import { rrStats } from '../core/rr.js';
 import { DEFAULT_SETTINGS } from '../core/settings.js';
-import { trendColour, rectColour, normalizeLabelText, snapAxis, moveRectHandle } from './drawing-logic.js';
+import { trendColour, rectColour, normalizeLabelText, snapAxis, moveRectHandle, fibLevelColour } from './drawing-logic.js';
 import { attachDrawingLabelDialog } from './drawingLabelDialog.js';
 
 const GROUP = 'replay_drawings';
@@ -208,20 +208,25 @@ function snapTrend({ points, performPointIndex, performPoint }) {
   }
 }
 
-function fibFigures({ chart, coordinates, bounding, overlay }) {
+function fibFigures({ coordinates, overlay }) {
   const points = overlay.points;
   if (coordinates.length < 2 || !points.slice(0, 2).every(point => Number.isFinite(point.value))) return [];
-  const precision = chart.getSymbol()?.pricePrecision ?? 2;
-  const lines = [];
-  const texts = [];
-  for (const level of overlay.extendData.levels) {
+  // Lines span only the two chosen points (TradingView "Don't extend").
+  const left = Math.min(coordinates[0].x, coordinates[1].x);
+  const right = Math.max(coordinates[0].x, coordinates[1].x);
+  const figures = [];
+  const { levels, colors } = overlay.extendData;
+  levels.forEach((level, index) => {
     const y = coordinates[1].y + (coordinates[0].y - coordinates[1].y) * level;
-    const price = points[1].value + (points[0].value - points[1].value) * level;
-    const value = chart.getDecimalFold().format(chart.getThousandsSeparator().format(price.toFixed(precision)));
-    lines.push({ coordinates: [{ x: 0, y }, { x: bounding.width, y }] });
-    texts.push({ x: 0, y, text: `${value} (${(level * 100).toFixed(1)}%)`, baseline: 'bottom' });
-  }
-  return [{ type: 'line', attrs: lines }, { type: 'text', ignoreEvent: true, attrs: texts }];
+    const color = fibLevelColour(colors, index);
+    figures.push({ type: 'line', attrs: { coordinates: [{ x: left, y }, { x: right, y }] },
+      styles: { color } });
+    // The label is just the level number the owner typed (1 shows 1, 2 shows 2).
+    figures.push({ type: 'text', ignoreEvent: true,
+      styles: { color, backgroundColor: 'rgba(19, 23, 34, 0.65)', borderSize: 0 },
+      attrs: { x: left, y, text: String(level), baseline: 'bottom' } });
+  });
+  return figures;
 }
 
 function label(text, x, y, color, bounding, baseline = 'top') {
@@ -344,7 +349,7 @@ export function startDrawing(chart, kind, options = {}) {
     ...(kind === 'trend' ? { styles: { line: { color: colours.get(instance) ?? trendColour() } } } : {}),
     ...(kind === 'rect' ? { styles: rectangleStyles(rectColours.get(instance) ?? rectColour()) } : {}),
     ...(['trend', 'rect'].includes(kind) ? { extendData: { text: null }, onDoubleClick: editDrawingLabel } : {}),
-    ...(kind === 'fib' ? { extendData: { levels: [...(options.levels ?? DEFAULT_SETTINGS.fibPresets[0].levels)] } } : {}),
+    ...(kind === 'fib' ? { extendData: { levels: [...(options.levels ?? DEFAULT_SETTINGS.fibPresets[0].levels)], colors: options.colors ? [...options.colors] : undefined } } : {}),
     onDrawStart: rememberChart,
     onPressedMoveStart: rememberChart,
     onSelected: selectDrawing,

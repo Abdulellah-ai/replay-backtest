@@ -45,6 +45,9 @@
     #drawing-label-dialog { width: 320px; }
     #drawing-label-dialog input { box-sizing: border-box; width: 100%; padding: 6px; margin: 6px 0 16px; }
     .fib-preset { width: 64px; font-size: 11px; padding: 3px 0; text-overflow: ellipsis; }
+    .fib-level { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+    .fib-level input:not([type=color]) { width: 90px; }
+    .fib-level input[type=color] { width: 36px; height: 26px; padding: 0; background: none; border: 1px solid #2a2e39; }
     .fib-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin: 12px 0; }
     .fib-row label { display: flex; flex-direction: column; gap: 4px; }
     .fib-row input { max-width: 100%; box-sizing: border-box; }
@@ -107,6 +110,8 @@
       <option value="1h" selected>1h</option><option value="4h">4h</option><option value="1D">1D</option>
     </select></label>
     <label><input class="ma50" type="checkbox" checked> MA50</label>
+    <label><input class="zones-toggle" type="checkbox" checked> Zones</label>
+    <label><input class="rsi-toggle" type="checkbox" checked> RSI</label>
   </template>
   <template id="drawing-tools">
     <button data-draw="trend" type="button">Trend</button>
@@ -148,7 +153,7 @@
   <dialog id="fib-dialog" aria-labelledby="fib-title">
     <form novalidate>
       <h2 id="fib-title">Fib levels</h2>
-      <p>Use 2 to 20 unique comma-separated levels from -5 to 10. Zero is the second point.</p>
+      <p>Each preset has 2 to 20 unique levels from -5 to 10, each with its own colour. Zero is the second point. Lines span only the two points you draw.</p>
       <div id="fib-rows"></div><button id="fib-add" type="button">Add preset</button>
       <p id="fib-error" role="alert"></p>
       <div class="dialog-actions"><button id="fib-cancel" type="button">Cancel</button>

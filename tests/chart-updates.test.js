@@ -40,6 +40,14 @@ test('each chart receives the built-in dark theme at creation', () => {
   const eur = setup();
   assert.equal(usd.styles[0], 'dark');
   assert.equal(eur.styles[0], 'dark');
+  for (const chart of [usd, eur]) {
+    const bar = chart.styles[1].candle.bar;
+    assert.equal(bar.upColor, bar.upBorderColor);
+    assert.equal(bar.upColor, bar.upWickColor);
+    assert.equal(bar.downColor, bar.downBorderColor);
+    assert.equal(bar.downColor, bar.downWickColor);
+    assert.notEqual(bar.upColor, bar.downColor);
+  }
 });
 
 test('a batch push includes every intervening bar on the finer timeframe', () => {

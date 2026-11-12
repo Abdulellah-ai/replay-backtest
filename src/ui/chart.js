@@ -3,11 +3,19 @@ import { attachAxisGuard } from './axis-guard.js';
 
 const WINDOW_SIZE = 1500;
 
+// TradingView-like candle colours (teal up, red down), same colour for body, border and wick.
+export const CANDLE_UP = '#089981';
+export const CANDLE_DOWN = '#f23645';
+
 export function createChart(el, replay, options = {}) {
   const api = globalThis.klinecharts;
   const instance = api.init(el);
   if (!instance) throw new Error('Could not initialize klinecharts');
   instance.setStyles('dark');
+  instance.setStyles({ candle: { bar: {
+    upColor: CANDLE_UP, upBorderColor: CANDLE_UP, upWickColor: CANDLE_UP,
+    downColor: CANDLE_DOWN, downBorderColor: CANDLE_DOWN, downWickColor: CANDLE_DOWN,
+  } } });
   const detachAxisGuard = attachAxisGuard(el, instance);
 
   let destroyed = false;

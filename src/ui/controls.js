@@ -241,6 +241,8 @@ export function attachControls({ usd, eur, master, settings, save }) {
       } finally { syncingTimeframe = false; }
     });
     pane.root.querySelector('.ma50').addEventListener('change', event => pane.indicators.setMa50(event.target.checked));
+    pane.root.querySelector('.zones-toggle').addEventListener('change', event => pane.indicators.setZones(event.target.checked));
+    pane.root.querySelector('.rsi-toggle').addEventListener('change', event => pane.indicators.setRsi(event.target.checked));
     const magnet = pane.root.querySelector('.magnet');
     magnet.setAttribute('aria-pressed', String(isMagnetEnabled()));
     magnet.addEventListener('click', () => {
@@ -272,8 +274,10 @@ export function attachControls({ usd, eur, master, settings, save }) {
       button.addEventListener('click', () => {
         const kind = button.dataset.draw;
         if (kind === 'clear') pane.drawing.clearDrawings();
-        else pane.drawing.startDrawing(kind, { levels:
-          settings.fibPresets.find(preset => preset.id === settings.activeFibPreset).levels });
+        else {
+          const preset = settings.fibPresets.find(item => item.id === settings.activeFibPreset);
+          pane.drawing.startDrawing(kind, { levels: preset.levels, colors: preset.colors });
+        }
       });
     }
     const surface = pane.root.querySelector('.chart');

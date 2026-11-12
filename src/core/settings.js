@@ -52,6 +52,11 @@ export function validateSettings(settings) {
     presetIds.add(preset.id);
     const result = validateFibLevels(preset.levels);
     if (!result.ok) return result;
+    if (preset.colors !== undefined && (!Array.isArray(preset.colors) ||
+        preset.colors.length !== preset.levels.length ||
+        preset.colors.some(colour => typeof colour !== 'string' || !/^#[0-9a-f]{6}$/i.test(colour)))) {
+      return { ok: false, error: 'Fib colours must be #rrggbb, one per level.' };
+    }
   }
   if (!presetIds.has(settings.activeFibPreset)) {
     return { ok: false, error: 'Choose an existing active Fib preset.' };

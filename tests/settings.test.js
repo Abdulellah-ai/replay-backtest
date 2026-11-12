@@ -257,3 +257,12 @@ test('gap warnings default on, persist booleans, migrate when absent and reject 
   }
   assert.deepEqual(loadSettings(fakeStorage(JSON.stringify({ ...fresh(), gapWarnings: 'no' }))), ownerSettings);
 });
+
+test('Fib preset colours are optional but must be #rrggbb, one per level', () => {
+  const withColours = (colors) => ({ ...fresh(), fibPresets: [{ id: 'default', name: 'Default', levels: [0, 0.5, 1], colors }] });
+  assert.equal(validateSettings(withColours(['#ff0000', '#00ff00', '#0000ff'])).ok, true);
+  assert.equal(validateSettings(fresh()).ok, true);
+  for (const bad of [['#ff0000'], ['red', 'green', 'blue'], ['#fff', '#fff', '#fff'], 'x', [1, 2, 3]]) {
+    assert.equal(validateSettings(withColours(bad)).ok, false, JSON.stringify(bad));
+  }
+});

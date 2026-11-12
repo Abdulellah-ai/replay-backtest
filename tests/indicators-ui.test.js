@@ -38,6 +38,26 @@ function fixture() {
     templates, registrations, active, listeners, overrides, bars };
 }
 
+test('Kill zones and RSI can be switched off and on again, idempotently', () => {
+  const f = fixture();
+  const a = attachIndicators(f.chart, f.replay, DEFAULT_SETTINGS);
+  assert.equal(f.active.size, 3);
+  a.setZones(false);
+  a.setZones(false);
+  assert.equal(f.active.has('replay_kill_zones') || [...f.active.keys()].some(name => /zone/i.test(name)), false);
+  assert.equal(f.active.size, 2);
+  a.setRsi(false);
+  a.setRsi(false);
+  assert.equal(f.active.size, 1);
+  a.update();
+  a.setZones(true);
+  a.setRsi(true);
+  assert.equal(f.active.size, 3);
+  a.destroy();
+  a.setZones(false);
+  assert.equal(f.active.size, 0);
+});
+
 test('registration is once per API; MA toggle, updates and destruction are idempotent', () => {
   const f = fixture();
   const a = attachIndicators(f.chart, f.replay, DEFAULT_SETTINGS);

@@ -158,6 +158,8 @@ export function attachIndicators(chart, replay, settings) {
   register(globalThis.klinecharts);
   let destroyed = false;
   let maEnabled = false;
+  let zonesEnabled = true;
+  let rsiEnabled = true;
   let cachedKey;
   let cachedRanges = [];
   const sessions = createSessionCache(store);
@@ -252,13 +254,19 @@ export function attachIndicators(chart, replay, settings) {
     return cachedRanges;
   }
 
-  const rsiId = instance.createIndicator({ name: RSI, paneId: RSI_PANE, calcParams: [14] }, false);
-  if (rsiId === null) throw new Error('Could not create RSI pane');
-  instance.setPaneOptions({ id: RSI_PANE, height: 140, minHeight: 80 });
+  function createRsi() {
+    const rsiId = instance.createIndicator({ name: RSI, paneId: RSI_PANE, calcParams: [14] }, false);
+    if (rsiId === null) throw new Error('Could not create RSI pane');
+    instance.setPaneOptions({ id: RSI_PANE, height: 140, minHeight: 80 });
+  }
+  function createZones() {
+    instance.createIndicator({ name: ZONES, paneId: MAIN, extendData: { getRanges, getLevelLines },
+      zLevel: -1 }, true);
+  }
+  createRsi();
   // Native axis label rendering reads the chart-wide indicator mark styles.
   instance.setStyles({ indicator: { lastValueMark: { show: true, text: { show: true } } } });
-  instance.createIndicator({ name: ZONES, paneId: MAIN, extendData: { getRanges, getLevelLines },
-    zLevel: -1 }, true);
+  createZones();
 
   function setMa50(enabled) {
     if (destroyed || maEnabled === enabled) return;
@@ -267,18 +275,32 @@ export function attachIndicators(chart, replay, settings) {
     else instance.removeIndicator({ name: MA, paneId: MAIN });
   }
 
+  function setZones(enabled) {
+    if (destroyed || zonesEnabled === enabled) return;
+    zonesEnabled = enabled;
+    if (enabled) createZones();
+    else instance.removeIndicator({ name: ZONES, paneId: MAIN });
+  }
+
+  function setRsi(enabled) {
+    if (destroyed || rsiEnabled === enabled) return;
+    rsiEnabled = enabled;
+    if (enabled) createRsi();
+    else instance.removeIndicator({ name: RSI, paneId: RSI_PANE });
+  }
+
   function update() {
     if (destroyed) return;
     cachedKey = undefined;
     getRanges();
-    instance.overrideIndicator({ name: RSI, calcParams: [14] });
+    if (rsiEnabled) instance.overrideIndicator({ name: RSI, calcParams: [14] });
     if (maEnabled) instance.overrideIndicator({ name: MA, calcParams: [50] });
-    instance.overrideIndicator({ name: ZONES, extendData: { getRanges, getLevelLines } });
+    if (zonesEnabled) instance.overrideIndicator({ name: ZONES, extendData: { getRanges, getLevelLines } });
   }
 
   // Includes scroll/zoom and changes caused by asynchronously prepended pages.
   const onRange = () => {
-    if (!destroyed) instance.overrideIndicator({ name: ZONES, extendData: { getRanges, getLevelLines } });
+    if (!destroyed && zonesEnabled) instance.overrideIndicator({ name: ZONES, extendData: { getRanges, getLevelLines } });
   };
   instance.subscribeAction('onVisibleRangeChange', onRange);
   setMa50(true);
@@ -294,5 +316,5 @@ export function attachIndicators(chart, replay, settings) {
     activeLevels.clear();
     sweptLevels = createLevelIndex(store.t[0], store.t.at(-1));
   }
-  return { update, setMa50, destroy };
+  return { update, setMa50, setZones, setRsi, destroy };
 }
