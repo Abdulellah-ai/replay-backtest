@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gold Replay</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { height: 100%; margin: 0; background: #131722; }
+    body { display: flex; flex-direction: column; font: 14px sans-serif; color: #d1d4dc; }
+    button, select, input { font: inherit; color: #d1d4dc; background: #1e222d;
+      border: 1px solid #2a2e39; border-radius: 3px; }
+    button, select { padding: 4px 6px; }
+    button { cursor: pointer; }
+    button:hover, button[aria-pressed="true"] { background: #2a2e39; }
+    button[aria-pressed="true"] { color: #90b8ff; border-color: #648bd1; }
+    button:disabled, select:disabled, input:disabled { color: #787b86; cursor: default; }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid #648bd1; }
+    #controls, .pane-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; }
+    #controls, .pane-controls { background: #1e222d; border-bottom: 1px solid #2a2e39; }
+    #status { margin: 0 8px; color: #e5b96b; }
+    #status:empty { display: none; }
+    #panes { --split: 50%; display: flex; position: relative; flex: 1; min-height: 0; }
+    .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    #usd-pane { flex: 0 0 var(--split); }
+    #eur-pane { flex: 1; }
+    .pane h2 { font-size: 15px; margin: 8px 8px 0; }
+    .pane-time { display: block; padding: 0 8px 6px; font: 12px monospace; }
+    .chart-area { display: flex; flex: 1; min-height: 0; }
+    .drawing-toolbar { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px;
+      flex: 0 0 72px; background: #1e222d; border-right: 1px solid #2a2e39; overflow-y: auto; }
+    .drawing-toolbar button { font-size: 11px; padding: 5px 2px; }
+    .trend-swatches { display: flex; gap: 3px; }
+    .drawing-toolbar .trend-swatch { width: 15px; height: 18px; padding: 0; border: 2px solid #555b6a; }
+    .drawing-toolbar .trend-swatch[aria-pressed="true"] { border-color: #90b8ff; outline: 1px solid #90b8ff; }
+    .trend-swatch[data-trend-colour="white"] { background: #ffffff; }
+    .trend-swatch[data-trend-colour="yellow"] { background: #f5c518; }
+    .trend-swatch[data-trend-colour="blue"] { background: #2962ff; }
+    .rect-swatches { display: flex; gap: 3px; }
+    .drawing-toolbar .rect-swatch { width: 15px; height: 18px; padding: 0; border: 2px solid #555b6a; }
+    .drawing-toolbar .rect-swatch[aria-pressed="true"] { border-color: #90b8ff; outline: 1px solid #90b8ff; }
+    .rect-swatch[data-rect-colour="white"] { background: #ffffff; }
+    .rect-swatch[data-rect-colour="green"] { background: #26a69a; }
+    .rect-swatch[data-rect-colour="gold"] { background: #d4af37; }
+    #drawing-label-dialog { width: 320px; }
+    #drawing-label-dialog input { box-sizing: border-box; width: 100%; padding: 6px; margin: 6px 0 16px; }
+    .fib-preset { width: 64px; font-size: 11px; padding: 3px 0; text-overflow: ellipsis; }
+    .fib-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin: 12px 0; }
+    .fib-row label { display: flex; flex-direction: column; gap: 4px; }
+    .fib-row input { max-width: 100%; box-sizing: border-box; }
+    .chart-wrap { position: relative; flex: 1; min-width: 0; min-height: 0; }
+    .chart { width: 100%; height: 100%; }
+    .gap-banner { position: absolute; top: 0; left: 4px; right: 4px; z-index: 3;
+      padding: 6px; background: #3b3020; color: #e5c58b; border: 1px solid #66502d;
+      pointer-events: none; font-size: 12px; }
+    #divider { position: absolute; left: calc(var(--split) - 4px); top: 0; bottom: 0;
+      width: 8px; cursor: col-resize; touch-action: none; background: #2a2e39; z-index: 4; }
+    #divider:focus-visible { outline: 2px solid #648bd1; }
+    body.resizing { cursor: col-resize; user-select: none; }
+    dialog { background: #1e222d; color: #d1d4dc; border: 1px solid #2a2e39;
+      border-radius: 6px; max-width: calc(100vw - 48px); }
+    dialog::backdrop { background: rgba(0,0,0,0.65); }
+    .zone-row { display: grid; grid-template-columns: minmax(70px, 1fr) auto auto; gap: 12px;
+      align-items: center; margin: 12px 0; }
+    .zone-row label { display: flex; gap: 4px; align-items: center; }
+    #kz-error, #fib-error { color: #ff7b86; }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <button id="play" type="button" disabled>Play</button>
+    <label>Speed <select id="speed" disabled>
+      <option value="1">1x</option><option value="5">5x</option>
+      <option value="20">20x</option><option value="60">60x</option>
+    </select></label>
+    <button id="step-m1" type="button" disabled>Step M1</button>
+    <button id="step-bar" type="button" disabled>Step bar</button>
+    <label>Jump to date (UTC) <input id="jump-date" type="date" disabled></label>
+    <button id="jump" type="button" disabled>Jump</button>
+    <label><input id="sync-crosshair" type="checkbox" disabled> Sync crosshair</label>
+    <label><input id="sync-scroll" type="checkbox" checked disabled> Sync scroll</label>
+    <label><input id="sync-timeframe" type="checkbox" checked disabled> Sync timeframe</label>
+    <button id="kill-zones" type="button" disabled>Kill zones</button>
+    <label><input id="session-levels" type="checkbox" disabled> Session H/L</label>
+    <label><input id="gap-warnings" type="checkbox" checked> Gap warnings</label>
+    <output id="master-time">Loading data...</output>
+  </div>
+  <p id="status" role="status" aria-live="polite"></p>
+  <main id="panes">
+    <section id="usd-pane" class="pane" aria-label="XAUUSD chart">
+      <h2>XAUUSD</h2><div class="pane-controls"></div><output class="pane-time"></output>
+      <div class="chart-area"><nav class="drawing-toolbar" aria-label="XAUUSD drawing tools"></nav>
+        <div class="chart-wrap"><div id="chart" class="chart"></div><div class="gap-banner" role="status" hidden></div></div></div>
+    </section>
+    <div id="divider" role="separator" tabindex="0" aria-label="Resize chart panes"
+      aria-orientation="vertical" aria-valuemin="20" aria-valuemax="80" aria-valuenow="50"></div>
+    <section id="eur-pane" class="pane" aria-label="XAUEUR chart">
+      <h2>XAUEUR</h2><div class="pane-controls"></div><output class="pane-time"></output>
+      <div class="chart-area"><nav class="drawing-toolbar" aria-label="XAUEUR drawing tools"></nav>
+        <div class="chart-wrap"><div id="eur-chart" class="chart"></div><div class="gap-banner" role="status" hidden></div></div></div>
+    </section>
+  </main>
+  <template id="pane-tools">
+    <label>Timeframe <select class="timeframe">
+      <option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option>
+      <option value="1h" selected>1h</option><option value="4h">4h</option><option value="1D">1D</option>
+    </select></label>
+    <label><input class="ma50" type="checkbox" checked> MA50</label>
+  </template>
+  <template id="drawing-tools">
+    <button data-draw="trend" type="button">Trend</button>
+    <div class="trend-swatches" role="group" aria-label="Trend line colour">
+      <button class="trend-swatch" data-trend-colour="white" type="button" aria-label="White trend line" aria-pressed="true"></button>
+      <button class="trend-swatch" data-trend-colour="yellow" type="button" aria-label="Yellow trend line" aria-pressed="false"></button>
+      <button class="trend-swatch" data-trend-colour="blue" type="button" aria-label="Blue trend line" aria-pressed="false"></button>
+    </div>
+    <button data-draw="rect" type="button">Rect</button>
+    <div class="rect-swatches" role="group" aria-label="Rectangle colour">
+      <button class="rect-swatch" data-rect-colour="white" type="button" aria-label="White rectangle" aria-pressed="true"></button>
+      <button class="rect-swatch" data-rect-colour="green" type="button" aria-label="Green rectangle" aria-pressed="false"></button>
+      <button class="rect-swatch" data-rect-colour="gold" type="button" aria-label="Gold rectangle" aria-pressed="false"></button>
+    </div>
+    <button data-draw="fib" type="button">Fib</button>
+    <select class="fib-preset" aria-label="Active Fib preset"></select>
+    <button class="fib-levels" type="button">Fib levels</button>
+    <button data-draw="long" type="button">Long</button><button data-draw="short" type="button">Short</button>
+    <button class="magnet" type="button" aria-pressed="true">Magnet</button>
+    <button data-draw="clear" type="button" title="Delete / Backspace: delete selected drawing">Clear</button>
+  </template>
+  <dialog id="drawing-label-dialog" aria-labelledby="drawing-label-title">
+    <form>
+      <h2 id="drawing-label-title">Drawing text</h2>
+      <label>Text (up to 40 characters)<input type="text" maxlength="40" autocomplete="off"></label>
+      <div class="dialog-actions"><button id="drawing-label-clear" type="button">Clear</button>
+        <button id="drawing-label-cancel" type="button">Cancel</button>
+        <button type="submit">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="kz-dialog" aria-labelledby="kz-title">
+    <form id="kz-form" novalidate>
+      <h2 id="kz-title">Kill zones</h2><p>Session times in America/New_York.</p>
+      <div id="kz-rows"></div><p id="kz-error" role="alert"></p>
+      <div class="dialog-actions"><button id="kz-cancel" type="button">Cancel</button>
+        <button id="kz-save" type="submit">Save</button></div>
+    </form>
+  </dialog>
+  <dialog id="fib-dialog" aria-labelledby="fib-title">
+    <form novalidate>
+      <h2 id="fib-title">Fib levels</h2>
+      <p>Use 2 to 20 unique comma-separated levels from -5 to 10. Zero is the second point.</p>
+      <div id="fib-rows"></div><button id="fib-add" type="button">Add preset</button>
+      <p id="fib-error" role="alert"></p>
+      <div class="dialog-actions"><button id="fib-cancel" type="button">Cancel</button>
+        <button type="submit">Save</button></div>
+    </form>
+  </dialog>
+  <script src="web-vendor/klinecharts.js"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

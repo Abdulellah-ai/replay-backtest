@@ -1,0 +1,36 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { dialogFixture } from './helpers/drawing-dialog.js';
+
+test('label dialog prefills and normalizes Save, Cancel preserves, Clear removes', async () => {
+  const { attachDrawingLabelDialog } = await import('../src/ui/drawingLabelDialog.js');
+  const f = dialogFixture();
+  const editor = attachDrawingLabelDialog(f.dialog);
+  const saved = [];
+  const open = text => editor.open(text, value => saved.push(value));
+  open('CISD');
+  assert.equal(f.dialog.open, true);
+  assert.equal(f.input.value, 'CISD');
+  f.input.value = '  replacement  ';
+  f.submit();
+  assert.deepEqual(saved, ['replacement']);
+  assert.equal(f.dialog.open, false);
+  open('existing');
+  f.input.value = 'discard';
+  f.cancel();
+  assert.deepEqual(saved, ['replacement']);
+  assert.equal(f.dialog.open, false);
+  open('existing');
+  f.clear();
+  assert.deepEqual(saved, ['replacement', null]);
+  assert.equal(f.dialog.open, false);
+  open(null);
+  assert.equal(f.input.value, '');
+  f.input.value = 'x'.repeat(41);
+  f.submit();
+  assert.equal(saved.at(-1), 'x'.repeat(40));
+  open('existing');
+  f.input.value = '  ';
+  f.submit();
+  assert.equal(saved.at(-1), null);
+});

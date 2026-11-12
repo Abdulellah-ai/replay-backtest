@@ -1,0 +1,6 @@
+node_modules/
+data/
+research-work/
+.env*
+tasks/
+tasks-report/

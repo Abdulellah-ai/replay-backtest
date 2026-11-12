@@ -1,0 +1,17 @@
+{
+  "name": "replay-backtest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Manual historical replay backtest app (XAUUSD / XAUEUR), personal use",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "fetch": "node tools/fetch-data.mjs"
+  },
+  "dependencies": {
+    "klinecharts": "10.1.0"
+  },
+  "devDependencies": {
+    "dukascopy-node": "1.51.1"
+  }
+}
